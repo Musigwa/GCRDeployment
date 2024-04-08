@@ -1,29 +1,51 @@
-# Use the official Node.js runtime as a parent image
+###############
+# STAGE 1: BUNDLE THE APPLICATION BUILD
+###############
+
 FROM node:18-alpine AS build
 
-# Set the working directory in the container to /app
+# Create a non-root user and switch to it
+# RUN adduser --disabled-password --gecos '' devops
+USER root
+
+# Create app directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json to the container
+# Copy package.json and yarn.lock to the working directory
 COPY package.json yarn.lock ./
 
-# Copy the rest of the application files to the container
+# Install dependencies
+RUN yarn install --frozen-lockfile && yarn cache clean
+
+# Copy the rest of the application source
 COPY . .
 
-# Install dependencies
-RUN yarn cache clean && yarn install --frozen-lockfile
+# Change ownership of the /app directory to the devops user
+# RUN chown -R devops:devops /app
 
 # Run the build process
 RUN yarn build
 
-# Create a new stage called "production"
+###############
+# STAGE 2: PREPARE A DEVELOPMENT BUILD
+###############
+
 FROM build AS production
 
-# Copy the necessary files and folders from the previous build
-COPY --from=build /app/dist /app/dist
+ARG NODE_ENV=production
+ENV NODE_ENV=${NODE_ENV}
 
-# Set the environment variable for the PORT
-ENV API_SERVER_PORT 2345
+# Switch to the devops user
+USER root
 
-# Use the CMD instruction to specify a command to run when the container is started
-CMD ["npm", "start"]
+# Create app directory (optional since build has already set it, but a good practice)
+WORKDIR /app
+
+# Copy the entire project from the build stage to the development image
+COPY --from=build /app/dist /app/package.json /app/yarn.lock ./
+
+# Install production dependencies
+RUN yarn install --production --frozen-lockfile && yarn cache clean
+
+# Run the command to start the Application server
+CMD [ "yarn", "start:prod" ]
